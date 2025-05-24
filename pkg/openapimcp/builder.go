@@ -81,10 +81,10 @@ func (b *MCPServerBuilder) BuildMCPServerFromSpec(spec *openapi3.T) (*server.MCP
 func (b *MCPServerBuilder) createTool(toolName string, op *openapi3.Operation) mcp.Tool {
 	tool := mcp.Tool{
 		Name:        toolName,
-		Description: op.Summary,
+		Description: op.Description,
 		InputSchema: mcp.ToolInputSchema{
 			Type:       "object",
-			Properties: make(map[string]interface{}),
+			Properties: make(map[string]any),
 			Required:   []string{},
 		},
 	}
@@ -101,17 +101,17 @@ func (b *MCPServerBuilder) createTool(toolName string, op *openapi3.Operation) m
 		}
 
 		paramSchema := convertSchemaToMCP(param.Schema)
-		tool.InputSchema.Properties[param.Name] = map[string]interface{}{
+		tool.InputSchema.Properties[param.Name] = map[string]any{
 			"type":        paramSchema["type"],
 			"description": param.Description,
 		}
 
 		// Add format, enum, etc. if present
 		if format, ok := paramSchema["format"]; ok {
-			tool.InputSchema.Properties[param.Name].(map[string]interface{})["format"] = format
+			tool.InputSchema.Properties[param.Name].(map[string]any)["format"] = format
 		}
 		if enum, ok := paramSchema["enum"]; ok {
-			tool.InputSchema.Properties[param.Name].(map[string]interface{})["enum"] = enum
+			tool.InputSchema.Properties[param.Name].(map[string]any)["enum"] = enum
 		}
 
 		if param.Required {
@@ -145,7 +145,7 @@ func (b *MCPServerBuilder) createHandler(method, fullURL string, op *openapi3.Op
 		// Build URL with path parameters
 		finalURL := fullURL
 		queryParams := url.Values{}
-		var requestBody interface{}
+		var requestBody any
 
 		// Process parameters
 		for _, paramRef := range op.Parameters {
@@ -200,7 +200,7 @@ func (b *MCPServerBuilder) createHandler(method, fullURL string, op *openapi3.Op
 }
 
 // makeHTTPRequest performs the actual HTTP request
-func (b *MCPServerBuilder) makeHTTPRequest(ctx context.Context, method, url string, body interface{}, op *openapi3.Operation, args map[string]interface{}) (string, error) {
+func (b *MCPServerBuilder) makeHTTPRequest(ctx context.Context, method, url string, body any, op *openapi3.Operation, args map[string]any) (string, error) {
 	var bodyReader io.Reader
 
 	if body != nil {
@@ -254,7 +254,7 @@ func (b *MCPServerBuilder) makeHTTPRequest(ctx context.Context, method, url stri
 
 	if len(responseBody) > 0 {
 		// Try to pretty-print JSON
-		var jsonObj interface{}
+		var jsonObj any
 		if err := json.Unmarshal(responseBody, &jsonObj); err == nil {
 			if prettyJSON, err := json.MarshalIndent(jsonObj, "", "  "); err == nil {
 				result += "Response:\n" + string(prettyJSON)
@@ -286,13 +286,57 @@ func generateToolName(method, path string, op *openapi3.Operation) string {
 }
 
 // convertSchemaToMCP converts OpenAPI schema to MCP tool schema format
-func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]interface{} {
-	if schemaRef == nil || schemaRef.Value == nil {
-		return map[string]interface{}{"type": "string"}
+func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]any {
+	return convertSchemaToMCPWithRefs(schemaRef, make(map[string]bool))
+}
+
+// convertSchemaToMCPWithRefs converts OpenAPI schema to MCP tool schema format with reference tracking
+func convertSchemaToMCPWithRefs(schemaRef *openapi3.SchemaRef, visited map[string]bool) map[string]any {
+	if schemaRef == nil {
+		return map[string]any{"type": "string"}
+	}
+
+	// Handle references to custom models
+	if schemaRef.Ref != "" {
+		// Check for circular references
+		if visited[schemaRef.Ref] {
+			// Return a simplified schema for circular references
+			return map[string]any{
+				"type":        "object",
+				"description": fmt.Sprintf("Reference to %s (circular reference detected)", extractRefName(schemaRef.Ref)),
+			}
+		}
+
+		// Mark this reference as visited
+		visited[schemaRef.Ref] = true
+		defer func() { delete(visited, schemaRef.Ref) }()
+
+		// If we have the resolved schema, process it
+		if schemaRef.Value != nil {
+			result := convertSchemaToMCPWithRefs(&openapi3.SchemaRef{Value: schemaRef.Value}, visited)
+			// Add reference information
+			refName := extractRefName(schemaRef.Ref)
+			if desc, ok := result["description"].(string); ok {
+				result["description"] = fmt.Sprintf("%s (Model: %s)", desc, refName)
+			} else {
+				result["description"] = fmt.Sprintf("Model: %s", refName)
+			}
+			return result
+		}
+
+		// If we don't have the resolved schema, return a placeholder
+		return map[string]any{
+			"type":        "object",
+			"description": fmt.Sprintf("Reference to model: %s", extractRefName(schemaRef.Ref)),
+		}
+	}
+
+	if schemaRef.Value == nil {
+		return map[string]any{"type": "string"}
 	}
 
 	schema := schemaRef.Value
-	result := make(map[string]interface{})
+	result := make(map[string]any)
 
 	// Handle type - schema.Type is *openapi3.Types (slice of strings)
 	if schema.Type != nil && len(*schema.Type) > 0 {
@@ -308,6 +352,11 @@ func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]interface{} {
 		primaryType = (*schema.Type)[0]
 	}
 
+	// Handle description
+	if schema.Description != "" {
+		result["description"] = schema.Description
+	}
+
 	// Handle format
 	if schema.Format != "" {
 		result["format"] = schema.Format
@@ -320,9 +369,9 @@ func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]interface{} {
 
 	// Handle object properties
 	if primaryType == "object" && len(schema.Properties) > 0 {
-		properties := make(map[string]interface{})
+		properties := make(map[string]any)
 		for propName, propSchema := range schema.Properties {
-			properties[propName] = convertSchemaToMCP(propSchema)
+			properties[propName] = convertSchemaToMCPWithRefs(propSchema, visited)
 		}
 		result["properties"] = properties
 
@@ -333,7 +382,29 @@ func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]interface{} {
 
 	// Handle array items
 	if primaryType == "array" && schema.Items != nil {
-		result["items"] = convertSchemaToMCP(schema.Items)
+		result["items"] = convertSchemaToMCPWithRefs(schema.Items, visited)
+	}
+
+	// Handle allOf, oneOf, anyOf
+	if len(schema.AllOf) > 0 {
+		result["allOf"] = make([]any, len(schema.AllOf))
+		for i, subSchema := range schema.AllOf {
+			result["allOf"].([]any)[i] = convertSchemaToMCPWithRefs(subSchema, visited)
+		}
+	}
+
+	if len(schema.OneOf) > 0 {
+		result["oneOf"] = make([]any, len(schema.OneOf))
+		for i, subSchema := range schema.OneOf {
+			result["oneOf"].([]any)[i] = convertSchemaToMCPWithRefs(subSchema, visited)
+		}
+	}
+
+	if len(schema.AnyOf) > 0 {
+		result["anyOf"] = make([]any, len(schema.AnyOf))
+		for i, subSchema := range schema.AnyOf {
+			result["anyOf"].([]any)[i] = convertSchemaToMCPWithRefs(subSchema, visited)
+		}
 	}
 
 	// Handle number constraints
@@ -352,7 +423,50 @@ func convertSchemaToMCP(schemaRef *openapi3.SchemaRef) map[string]interface{} {
 		result["maxLength"] = *schema.MaxLength
 	}
 
+	// Handle pattern
+	if schema.Pattern != "" {
+		result["pattern"] = schema.Pattern
+	}
+
+	// Handle array constraints
+	if schema.MinItems > 0 {
+		result["minItems"] = schema.MinItems
+	}
+	if schema.MaxItems != nil {
+		result["maxItems"] = *schema.MaxItems
+	}
+
+	// Handle object constraints
+	if schema.MinProps > 0 {
+		result["minProperties"] = schema.MinProps
+	}
+	if schema.MaxProps != nil {
+		result["maxProperties"] = *schema.MaxProps
+	}
+
+	// Handle default values
+	if schema.Default != nil {
+		result["default"] = schema.Default
+	}
+
+	// Handle examples
+	if schema.Example != nil {
+		result["example"] = schema.Example
+	}
+
 	return result
+}
+
+// extractRefName extracts the model name from a reference string
+func extractRefName(ref string) string {
+	// Handle common reference formats:
+	// #/components/schemas/ModelName -> ModelName
+	// #/definitions/ModelName -> ModelName
+	parts := strings.Split(ref, "/")
+	if len(parts) > 0 {
+		return parts[len(parts)-1]
+	}
+	return ref
 }
 
 // Convenience function that matches your requested signature

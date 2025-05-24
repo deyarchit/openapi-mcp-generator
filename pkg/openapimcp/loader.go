@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/getkin/kin-openapi/openapi3"
+	log "github.com/sirupsen/logrus"
 )
 
 // LoadSpec loads an OpenAPI 3 specification from a given source (URL or local file path).
@@ -28,7 +29,7 @@ func LoadSpec(source string) (*openapi3.T, error) {
 	u, urlErr := url.ParseRequestURI(source)
 	if urlErr == nil && (u.Scheme == "http" || u.Scheme == "https") {
 		// It's a URL
-		fmt.Printf("Loading OpenAPI spec from URL: %s\n", source)
+		log.Debugf("Loading OpenAPI spec from URL: %s\n", source)
 		resp, httpErr := http.Get(source)
 		if httpErr != nil {
 			return nil, fmt.Errorf("failed to fetch spec from URL %s: %w", source, httpErr)
@@ -46,7 +47,7 @@ func LoadSpec(source string) (*openapi3.T, error) {
 		baseURI = u
 	} else {
 		// Assume it's a local file path
-		fmt.Printf("Loading OpenAPI spec from file: %s\n", source)
+		log.Debugf("Loading OpenAPI spec from file: %s\n", source)
 		absPath, pathErr := filepath.Abs(source)
 		if pathErr != nil {
 			return nil, fmt.Errorf("failed to get absolute path for %s: %w", source, pathErr)
@@ -83,6 +84,6 @@ func LoadSpec(source string) (*openapi3.T, error) {
 		return nil, fmt.Errorf("OpenAPI spec validation failed: %w", err)
 	}
 
-	fmt.Printf("Successfully loaded and validated OpenAPI spec: %s (Version: %s)\n", doc.Info.Title, doc.Info.Version)
+	log.Debugf("Successfully loaded and validated OpenAPI spec: %s (Version: %s)\n", doc.Info.Title, doc.Info.Version)
 	return doc, nil
 }
