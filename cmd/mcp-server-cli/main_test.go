@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -25,7 +26,16 @@ func TestMain(t *testing.T) {
 	assert.NoError(t, err)
 
 	for _, tool := range tools.Tools {
-		fmt.Printf("Name: %s\n, Description: %s\n, OutputSchema: %v", tool.Name, tool.Description, tool.InputSchema)
+		// Marshal the struct to JSON
+		jsonBytes, err := json.MarshalIndent(tool.InputSchema, "", "    ")
+		if err != nil {
+			fmt.Println("Error marshaling JSON:", err)
+			return
+		}
+
+		// Convert the byte slice to a string
+		jsonString := string(jsonBytes)
+		fmt.Printf("\nName: %s\n, Description: %s\n, Input Schema: %v", tool.Name, tool.Description, jsonString)
 	}
 
 }

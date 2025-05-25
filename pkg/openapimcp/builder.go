@@ -77,77 +77,99 @@ func (b *MCPServerBuilder) BuildMCPServerFromSpec(spec *openapi3.T) (*server.MCP
 	return mcpServer, nil
 }
 
-// createTool creates an MCP tool from an OpenAPI operation
 func (b *MCPServerBuilder) createTool(toolName string, op *openapi3.Operation) mcp.Tool {
-	tool := mcp.Tool{
-		Name:        toolName,
-		Description: op.Description,
-		InputSchema: mcp.ToolInputSchema{
-			Type:       "object",
-			Properties: make(map[string]any),
-			Required:   []string{},
-		},
-	}
+	requiredSet := map[string]struct{}{}
+	properties := map[string]any{}
 
-	if op.Description != "" && tool.Description == "" {
-		tool.Description = op.Description
-	}
-
-	// Add parameters to tool schema
+	// Parameters (path/query/header)
 	for _, paramRef := range op.Parameters {
 		param := paramRef.Value
 		if param == nil {
 			continue
 		}
 
-		paramSchema := convertSchemaToMCP(param.Schema)
-		tool.InputSchema.Properties[param.Name] = map[string]any{
-			"type":        paramSchema["type"],
-			"description": param.Description,
-		}
+		schemaMap := map[string]any{}
+		if param.Schema != nil {
+			paramSchema := convertSchemaToMCP(param.Schema)
 
-		// Add format, enum, etc. if present
-		if format, ok := paramSchema["format"]; ok {
-			tool.InputSchema.Properties[param.Name].(map[string]any)["format"] = format
+			if t, ok := paramSchema["type"]; ok {
+				schemaMap["type"] = t
+			}
+			if f, ok := paramSchema["format"]; ok {
+				schemaMap["format"] = f
+			}
+			if e, ok := paramSchema["enum"]; ok {
+				schemaMap["enum"] = e
+			}
+			if ex, ok := paramSchema["example"]; ok {
+				schemaMap["example"] = ex
+			}
 		}
-		if enum, ok := paramSchema["enum"]; ok {
-			tool.InputSchema.Properties[param.Name].(map[string]any)["enum"] = enum
+		if param.Description != "" {
+			schemaMap["description"] = param.Description
 		}
+		properties[param.Name] = schemaMap
 
 		if param.Required {
-			tool.InputSchema.Required = append(tool.InputSchema.Required, param.Name)
+			requiredSet[param.Name] = struct{}{}
 		}
 	}
 
-	// Add request body parameters if present
+	// Request body (JSON only)
 	if op.RequestBody != nil && op.RequestBody.Value != nil {
 		for mediaType, mediaTypeObj := range op.RequestBody.Value.Content {
 			if strings.Contains(mediaType, "json") && mediaTypeObj.Schema != nil {
 				bodySchema := convertSchemaToMCP(mediaTypeObj.Schema)
-				tool.InputSchema.Properties["requestBody"] = bodySchema
-				if op.RequestBody.Value.Required {
-					tool.InputSchema.Required = append(tool.InputSchema.Required, "requestBody")
+
+				if props, ok := bodySchema["properties"].(map[string]any); ok {
+					for k, v := range props {
+						properties[k] = v
+					}
+				}
+				if required, ok := bodySchema["required"].([]string); ok {
+					for _, r := range required {
+						requiredSet[r] = struct{}{}
+					}
+				} else if required, ok := bodySchema["required"].([]any); ok {
+					for _, r := range required {
+						if s, ok := r.(string); ok {
+							requiredSet[s] = struct{}{}
+						}
+					}
 				}
 				break
 			}
 		}
 	}
 
-	return tool
+	// Build required slice
+	required := []string{}
+	for k := range requiredSet {
+		required = append(required, k)
+	}
+
+	// Return valid OpenAI-compatible tool schema
+	return mcp.Tool{
+		Name:        toolName,
+		Description: op.Description,
+		InputSchema: mcp.ToolInputSchema{
+			Type:       "object",
+			Properties: properties,
+			Required:   required,
+		},
+	}
 }
 
 // createHandler creates a handler function for an API endpoint
 func (b *MCPServerBuilder) createHandler(method, fullURL string, op *openapi3.Operation) server.ToolHandlerFunc {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Parse arguments
 		args := request.GetArguments()
-
-		// Build URL with path parameters
 		finalURL := fullURL
 		queryParams := url.Values{}
-		var requestBody any
+		headers := http.Header{}
+		bodyFields := map[string]any{}
 
-		// Process parameters
+		// Handle OpenAPI parameters (path, query, header)
 		for _, paramRef := range op.Parameters {
 			param := paramRef.Value
 			if param == nil {
@@ -158,7 +180,6 @@ func (b *MCPServerBuilder) createHandler(method, fullURL string, op *openapi3.Op
 			if !exists && param.Required {
 				return nil, fmt.Errorf("required parameter %s is missing", param.Name)
 			}
-
 			if !exists {
 				continue
 			}
@@ -171,32 +192,54 @@ func (b *MCPServerBuilder) createHandler(method, fullURL string, op *openapi3.Op
 			case "query":
 				queryParams.Add(param.Name, valueStr)
 			case "header":
-				// Headers will be handled separately
+				headers.Add(param.Name, valueStr)
 			}
 		}
 
-		// Add query parameters to URL
+		// Append query parameters
 		if len(queryParams) > 0 {
-			separator := "?"
+			sep := "?"
 			if strings.Contains(finalURL, "?") {
-				separator = "&"
+				sep = "&"
 			}
-			finalURL += separator + queryParams.Encode()
+			finalURL += sep + queryParams.Encode()
 		}
 
-		// Handle request body
-		if body, exists := args["requestBody"]; exists {
-			requestBody = body
+		// Reconstruct request body by excluding known path/query/header params
+		if op.RequestBody != nil && op.RequestBody.Value != nil {
+			for mediaType, media := range op.RequestBody.Value.Content {
+				if strings.Contains(mediaType, "json") && media.Schema != nil {
+					if schemaRef := media.Schema; schemaRef.Value != nil {
+						for propName := range schemaRef.Value.Properties {
+							if val, exists := args[propName]; exists {
+								bodyFields[propName] = val
+							} else if contains(schemaRef.Value.Required, propName) {
+								return nil, fmt.Errorf("missing required request body field: %s", propName)
+							}
+						}
+					}
+					break
+				}
+			}
 		}
 
-		// Make HTTP request
-		response, err := b.makeHTTPRequest(ctx, method, finalURL, requestBody, op, args)
+		// Make request
+		resp, err := b.makeHTTPRequest(ctx, method, finalURL, bodyFields, op, args)
 		if err != nil {
 			return nil, fmt.Errorf("API request failed: %w", err)
 		}
 
-		return mcp.NewToolResultText(response), nil
+		return mcp.NewToolResultText(resp), nil
 	}
+}
+
+func contains(list []string, target string) bool {
+	for _, item := range list {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
 
 // makeHTTPRequest performs the actual HTTP request
