@@ -1,4 +1,4 @@
-module openapimcp-generator
+module openapi-mcp-generator
 
 go 1.23.9
 
