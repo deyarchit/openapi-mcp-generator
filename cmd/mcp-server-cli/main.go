@@ -5,8 +5,7 @@ import (
 	"log"
 	"os"
 
-	// MCP server library
-	"github.com/spf13/pflag" // Using pflag for flags
+	"github.com/spf13/pflag"
 
 	"openapimcp-generator/pkg/openapimcp"
 )
@@ -18,7 +17,6 @@ var (
 )
 
 func init() {
-	// Define command-line flags
 	pflag.StringVarP(&specFile, "spec-file", "f", "", "Path to a local OpenAPI spec file (JSON or YAML).")
 	pflag.StringVarP(&specURL, "spec-url", "u", "", "URL to a remote OpenAPI spec file (JSON or YAML).")
 	pflag.StringVarP(&modeStr, "mode", "m", "stdio", "MCP server mode: 'stdio' or 'sse'. (default: stdio)")
@@ -33,21 +31,21 @@ func init() {
 }
 
 func main() {
-	// pflag.Parse()
+	pflag.Parse()
 
-	// // Validate flags
-	// if specFile == "" && specURL == "" {
-	// 	log.Println("Error: You must provide either --spec-file or --spec-url.")
-	// 	pflag.Usage()
-	// 	os.Exit(1)
-	// }
-	// if specFile != "" && specURL != "" {
-	// 	log.Println("Error: You can only provide one of --spec-file or --spec-url, not both.")
-	// 	pflag.Usage()
-	// 	os.Exit(1)
-	// }
+	// Validate flags
+	if specFile == "" && specURL == "" {
+		log.Println("Error: You must provide either --spec-file or --spec-url.")
+		pflag.Usage()
+		os.Exit(1)
+	}
+	if specFile != "" && specURL != "" {
+		log.Println("Error: You can only provide one of --spec-file or --spec-url, not both.")
+		pflag.Usage()
+		os.Exit(1)
+	}
 
-	// specSource := specFile
+	specSource := specFile
 	// if specURL != "" {
 	// 	specSource = specURL
 	// }
@@ -67,7 +65,7 @@ func main() {
 	// log.Printf("Initializing MCP server generator with spec: %s, mode: %s", specSource, mcpMode)
 
 	config := openapimcp.GeneratorConfig{
-		SpecSource: "/Users/deyarchit/Projects/go/src/github.com/deyarchit/workstreams/workstreams-backend/docs/swagger.json",
+		SpecSource: specSource,
 		ServerMode: openapimcp.StdIO,
 	}
 
