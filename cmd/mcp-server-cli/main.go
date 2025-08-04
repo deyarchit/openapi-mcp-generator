@@ -7,7 +7,7 @@ import (
 
 	"github.com/spf13/pflag"
 
-	"openapi-mcp-generator/pkg/openapimcp"
+	"github.com/deyarchit/openapi-mcp-generator/pkg/openapimcp"
 )
 
 var (
