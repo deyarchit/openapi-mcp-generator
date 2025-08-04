@@ -1,6 +1,6 @@
 # OpenAPI MCP Generator
 
-A utility for serving openapi v3 spec as a mcp server. 
+A utility for serving api service with openapi v3 spec as a mcp server. 
 
 ## Running
 
@@ -21,8 +21,6 @@ Add the config to the mcp config file `~/.mcp_config`:
   }
 }
 ```
-
-`npx @modelcontextprotocol/inspector --config ~/.mcp_config --server <config_dict_name>`
 
 ```bash
 ▶ npx @modelcontextprotocol/inspector --config ~/.mcp_config --server <config_dict_name>
