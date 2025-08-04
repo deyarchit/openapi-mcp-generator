@@ -2,6 +2,8 @@ package openapimcp
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
 
 	"github.com/mark3labs/mcp-go/server"
 )
@@ -25,19 +27,25 @@ func RunFromSpec(config GeneratorConfig) error {
 		return fmt.Errorf("spec source cannot be empty")
 	}
 
-	// 1. Load the OpenAPI spec
+	// Load the OpenAPI spec
 	openapiSpec, err := LoadSpec(config.SpecSource)
 	if err != nil {
 		return fmt.Errorf("failed to load OpenAPI spec: %w", err)
 	}
 
-	// 2. Build the MCP server from the spec
-	mcpServer, err := BuildMCPServerFromSpec(openapiSpec)
+	serverCfg := &APIConfig{
+		BaseURL:    getBaseURLFromSpecSource(config.SpecSource),
+		HTTPClient: &http.Client{},
+		Headers:    make(map[string]string),
+	}
+
+	// Build the MCP server from the spec and config
+	mcpServer, err := BuildMCPServerFromSpec(openapiSpec, serverCfg)
 	if err != nil {
 		return fmt.Errorf("failed to build MCP server from spec: %w", err)
 	}
 
-	// 3. Start the MCP server
+	// Start the MCP server
 	// log.Printf("Starting MCP server '%s' in %s mode...", mcpServer.Name(), mcpServer.Mode())
 	if err := server.ServeStdio(mcpServer); err != nil {
 		return fmt.Errorf("MCP server failed to start or exited with error: %w", err)
@@ -46,4 +54,13 @@ func RunFromSpec(config GeneratorConfig) error {
 	// log.Printf("MCP server '%s' has stopped.", mcpServer.Name)
 	return nil
 
+}
+
+func getBaseURLFromSpecSource(specSource string) string {
+	var baseURL string
+	u, urlErr := url.ParseRequestURI(specSource)
+	if urlErr == nil && (u.Scheme == "http" || u.Scheme == "https") {
+		baseURL = fmt.Sprintf("%s://%s", u.Scheme, u.Host)
+	}
+	return baseURL
 }

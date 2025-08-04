@@ -80,7 +80,7 @@ func LoadSpec(source string) (*openapi3.T, error) {
 		return nil, fmt.Errorf("failed to load/parse OpenAPI spec from %s: %w", source, err)
 	}
 
-	// Validate the loaded spec (optional, but good practice)
+	// Validate the loaded spec
 	err = doc.Validate(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("OpenAPI spec validation failed: %w", err)

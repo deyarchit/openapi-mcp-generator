@@ -46,9 +46,9 @@ func main() {
 	}
 
 	specSource := specFile
-	// if specURL != "" {
-	// 	specSource = specURL
-	// }
+	if specURL != "" {
+		specSource = specURL
+	}
 
 	// var mcpMode openapimcp.ServerMode
 	// switch modeStr {

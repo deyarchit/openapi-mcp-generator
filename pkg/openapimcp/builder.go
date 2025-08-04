@@ -514,12 +514,7 @@ func extractRefName(ref string) string {
 	return ref
 }
 
-// Convenience function that matches your requested signature
-func BuildMCPServerFromSpec(spec *openapi3.T) (*server.MCPServer, error) {
-	config := &APIConfig{
-		HTTPClient: &http.Client{},
-		Headers:    make(map[string]string),
-	}
+func BuildMCPServerFromSpec(spec *openapi3.T, config *APIConfig) (*server.MCPServer, error) {
 	builder := NewMCPServerBuilder(config)
 	return builder.BuildMCPServerFromSpec(spec)
 }
