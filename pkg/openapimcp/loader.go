@@ -34,6 +34,8 @@ func LoadSpec(source string) (*openapi3.T, error) {
 		if httpErr != nil {
 			return nil, fmt.Errorf("failed to fetch spec from URL %s: %w", source, httpErr)
 		}
+
+		//nolint
 		defer resp.Body.Close()
 
 		if resp.StatusCode != http.StatusOK {

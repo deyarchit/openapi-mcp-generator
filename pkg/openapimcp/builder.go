@@ -285,6 +285,8 @@ func (b *MCPServerBuilder) makeHTTPRequest(ctx context.Context, method, url stri
 	if err != nil {
 		return "", fmt.Errorf("HTTP request failed: %w", err)
 	}
+
+	//nolint
 	defer resp.Body.Close()
 
 	responseBody, err := io.ReadAll(resp.Body)
